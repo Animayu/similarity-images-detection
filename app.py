@@ -15,18 +15,18 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # 设置页面配置
 st.set_page_config(
-    page_title="图片相似度欺诈检测系统",
+    page_title="图像相似度欺诈检测系统",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # 标题和介绍
-st.title("图片相似度欺诈检测系统")
+st.title("图像相似度欺诈检测系统")
 st.markdown("""
 本系统用于检测与输入图像相似度高于阈值的图像，辅助防欺诈检测。支持CNN和pHash两种算法。
-- **CNN**：基于深度学习特征，适合语义级相似性检测
-- **pHash**：基于感知哈希，适合轻微变化图片的快速检测
+- **CNN**：基于深度学习特征，适合语义级相似性检测，能更好理解图片内容，即使光照变化，角度变化也能识别，但检测大量相似场景时可能会滥检
+- **pHash**：基于感知哈希，适合轻微变化图片的快速检测，是较为严格的像素级相似性检测，对图片内容理解能力较差
 """)
 
 # 侧边栏 - 参数设置
@@ -59,7 +59,7 @@ if algorithm == "pHash" or algorithm == "两种方法都使用":
 
 # 设置显示的最相似图片数量
 top_n = st.sidebar.slider(
-    "显示最相似的图片数量", 
+    "显示最相似的图像数量", 
     min_value=1, 
     max_value=10, 
     value=5
@@ -217,6 +217,38 @@ def compute_cosine_similarity(vec1, vec2):
     vec2_reshaped = np.array(vec2).reshape(1, -1)
     return cosine_similarity(vec1_reshaped, vec2_reshaped)[0][0]
 
+def compute_hamming_distance(hash1, hash2):
+    """计算两个哈希向量的汉明距离，兼容十六进制、二进制、数组、标量等多种输入"""
+    def to_bit_array(h):
+        # 如果是0维数组，先转成标量
+        if isinstance(h, np.ndarray) and h.ndim == 0:
+            h = h.item()
+        # 如果是字符串
+        if isinstance(h, str):
+            # 如果是十六进制字符串（只含0-9a-f），转为二进制
+            if all(c in '0123456789abcdefABCDEF' for c in h):
+                # 转为整数再转为二进制字符串
+                bin_str = bin(int(h, 16))[2:].zfill(64)
+                return np.array([int(x) for x in bin_str])
+            # 否则假定是二进制字符串
+            return np.array([int(x) for x in h])
+        # 如果是标量（int/float），转为二进制字符串再转数组
+        if isinstance(h, (int, np.integer)):
+            return np.array([int(x) for x in bin(h)[2:].zfill(64)])
+        # 如果是1维数组或列表
+        arr = np.array(h)
+        if arr.ndim == 1:
+            # 如果是字符串数组
+            if arr.dtype.type is np.str_:
+                # 递归处理每个元素
+                return np.concatenate([to_bit_array(x) for x in arr])
+            return arr
+        # 其他情况直接flatten
+        return arr.flatten()
+    arr1 = to_bit_array(hash1)
+    arr2 = to_bit_array(hash2)
+    return np.count_nonzero(arr1 != arr2)
+
 # 主要应用逻辑
 def main():
     # 检查图片库路径
@@ -324,7 +356,7 @@ def main():
             phash_distances = {}
             for img_name, encoding in phash_encodings.items():
                 if encoding is not None and uploaded_phash is not None:
-                    distance = phasher._hamming_distance(uploaded_phash, encoding)
+                    distance = compute_hamming_distance(uploaded_phash, encoding)
                     phash_distances[img_name] = distance
             
             # 根据距离排序（越小越相似）
@@ -367,15 +399,6 @@ def main():
             st.subheader("检测结果摘要")
             st.dataframe(all_results)
 
-    # 页面底部水印
-    st.markdown(
-        """
-        <div style='text-align: right; color: #888888; font-size: 12px; margin-top: 40px;'>
-            © 数据中台部 · 数据挖掘组
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 # 运行应用
 if __name__ == "__main__":
